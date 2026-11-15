@@ -2940,7 +2940,7 @@ impl Writer {
     /// there" means.
     pub fn track_id_at(&self, path: &Path) -> Result<Option<String>> {
         let path = normalized(path);
-        let folder = path.to_string_lossy().into_owned();
+        let folder = folder_path(&path);
         let id = self
             .library
             .connection()
@@ -2978,7 +2978,7 @@ impl Writer {
         let uuid = self.rng.uuid4();
         let stamp = time::now();
         let today = stamp.get(..10).unwrap_or_default().to_owned();
-        let folder = path.to_string_lossy().into_owned();
+        let folder = folder_path(path);
         // The library's own device: `djmdProperty` names it, and every one of
         // the 645 rows rekordbox 7 imported on this machine carries the pair.
         let (master_db, device): (Option<String>, Option<String>) = self
@@ -5285,7 +5285,7 @@ impl Writer {
                     .unwrap_or_default())
             };
             let after = [
-                Value::Text(path.to_string_lossy().into_owned()),
+                Value::Text(folder_path(path)),
                 name,
                 Value::Text(crate::file_id::column(path)),
             ];
@@ -5785,7 +5785,7 @@ fn insert_files(
     // `track_id_at` answers it. One pass over the table, kept for the
     // paths of this batch only.
     let wanted: std::collections::HashSet<String> =
-        paths.iter().map(|p| p.to_string_lossy().into_owned()).collect();
+        paths.iter().map(|p| folder_path(p)).collect();
     let mut held: HashMap<String, String> = HashMap::new();
     {
         let mut stmt = tx.prepare(
@@ -5806,7 +5806,7 @@ fn insert_files(
     let mut outcomes = Vec::with_capacity(paths.len());
 
     for (path, tags) in paths.iter().zip(tags) {
-        let folder = path.to_string_lossy().into_owned();
+        let folder = folder_path(path);
         if let Some(id) = held.get(&folder) {
             outcomes.push(ImportOutcome::Existing(id.clone()));
             continue;
@@ -6454,6 +6454,17 @@ fn is_descendant(conn: &Connection, candidate: &str, ancestor: &str) -> Result<b
         }
     }
     Err(DbError::WriteRefused("cyclic or excessively deep playlist tree".into()))
+}
+
+/// The text kept in `FolderPath` for a file, with `/` between the parts on
+/// every system, so a Windows file is stored as `C:/Music/a.mp3`.
+/// [ASSUME] rekordbox stores Windows paths this way, as its settings do
+/// (see `locate`) and as [`crate::drive_of`] takes its `toUnifiedFilePath` to do.
+/// Either way one file needs one spelling: with `\` the "already in the
+/// library" check misses the file and importing it again adds it twice.
+fn folder_path(path: &Path) -> String {
+    let text = path.to_string_lossy();
+    if cfg!(windows) { text.replace('\\', "/") } else { text.into_owned() }
 }
 
 /// The next local USN.
